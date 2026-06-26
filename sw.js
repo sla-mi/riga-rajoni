@@ -1,7 +1,7 @@
 // Service worker: network-first для своих файлов.
 // При наличии интернета всегда отдаёт свежую версию (обновления появляются сами),
 // без интернета — из кэша (офлайн-режим работает).
-const CACHE='warmap-v1';
+const CACHE='rigawar-v1';
 self.addEventListener('install', e=>{ self.skipWaiting(); });
 self.addEventListener('activate', e=>{ e.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', e=>{
