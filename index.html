@@ -718,6 +718,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button class="btn" id="btnRedo" title="Вернуть">⏩</button>
   <button class="btn" id="btnRec" title="Запись изменений">⏺</button>
   <button class="btn" id="btnPlay" title="Проиграть запись">▶️</button>
+  <button class="btn" id="btnExport" title="Выгрузить для Google (Мои карты / Earth)">🌍</button>
 </div>
 <div id="reclist"></div>
 <div id="toast"></div>
@@ -830,7 +831,7 @@ window.EUROPE_GEOJSON={"type":"FeatureCollection","features":[{"type":"Feature",
 if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
 
 // отметка версии (дата/время сборки по Риге) — чтобы видеть, обновилось ли
-const BUILD='Рига 26.06.2026 18:08';
+const BUILD='27.06.2026 10:25';
 try{ document.getElementById('ver').textContent = (BUILD.indexOf('__')===0)?'' : ('верс. '+BUILD); }catch(e){}
 
 const map = L.map('map',{minZoom:9,maxZoom:16,zoomControl:false}).setView([56.95,24.11],11);
@@ -1363,6 +1364,73 @@ function animateFill(region, color, baseColor, atkBefore){
 }
 
 function save(){ try{ localStorage.setItem('rigawar',JSON.stringify(state)); }catch(e){} }
+
+// ---- выгрузка в Google (KML: Мои карты / Google Earth) ----
+function hex2kml(col){
+  // любой цвет (#rrggbb | hsl(h,s%,l%)) -> aabbggrr (KML), alpha ~0.6
+  let r=136,g=136,b=136;
+  const c=String(col||'').trim();
+  let m;
+  if((m=c.match(/^#([0-9a-f]{3,6})$/i))){
+    let h=m[1]; if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    r=parseInt(h.slice(0,2),16); g=parseInt(h.slice(2,4),16); b=parseInt(h.slice(4,6),16);
+  } else if((m=c.match(/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/i))){
+    const H=+m[1]/360, S=+m[2]/100, L=+m[3]/100;
+    const q=L<0.5?L*(1+S):L+S-L*S, p=2*L-q;
+    const hue=(t)=>{ if(t<0)t+=1; if(t>1)t-=1;
+      if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q;
+      if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; };
+    r=Math.round(hue(H+1/3)*255); g=Math.round(hue(H)*255); b=Math.round(hue(H-1/3)*255);
+  }
+  const hx=(n)=>n.toString(16).padStart(2,'0');
+  return '99'+hx(b)+hx(g)+hx(r);
+}
+function ringKML(ring){
+  return ring.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)+',0').join(' ');
+}
+function polyKML(coords){
+  let s='<Polygon><outerBoundaryIs><LinearRing><coordinates>'+ringKML(coords[0])+
+        '</coordinates></LinearRing></outerBoundaryIs>';
+  for(let i=1;i<coords.length;i++){
+    s+='<innerBoundaryIs><LinearRing><coordinates>'+ringKML(coords[i])+
+       '</coordinates></LinearRing></innerBoundaryIs>';
+  }
+  return s+'</Polygon>';
+}
+function geomKML(g){
+  if(g.type==='Polygon') return polyKML(g.coordinates);
+  if(g.type==='MultiPolygon'){
+    const parts=g.coordinates.map(polyKML).join('');
+    return '<MultiGeometry>'+parts+'</MultiGeometry>';
+  }
+  return '';
+}
+function xmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function exportKML(){
+  let placemarks='';
+  Object.keys(state).forEach((name)=>{
+    const f=state[name];
+    if(!f||!f.geometry) return;
+    const gk=geomKML(f.geometry);
+    if(!gk) return;
+    const col=hex2kml(f.color);
+    placemarks+='<Placemark><name>'+xmlEsc(name)+'</name>'+
+      '<Style><LineStyle><color>ff333333</color><width>1</width></LineStyle>'+
+      '<PolyStyle><color>'+col+'</color><fill>1</fill><outline>1</outline></PolyStyle></Style>'+
+      gk+'</Placemark>';
+  });
+  const kml='<?xml version="1.0" encoding="UTF-8"?>\n'+
+    '<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Битва районов Риги</name>'+
+    placemarks+'</Document></kml>';
+  const blob=new Blob([kml],{type:'application/vnd.google-earth.kml+xml'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='riga-rajoni.kml';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+  hint('Файл riga-rajoni.kml скачан → импортируй в Google Мои карты');
+}
+document.getElementById('btnExport').onclick=exportKML;
 </script>
 </body>
 </html>
