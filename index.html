@@ -831,7 +831,7 @@ window.EUROPE_GEOJSON={"type":"FeatureCollection","features":[{"type":"Feature",
 if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
 
 // отметка версии (дата/время сборки по Риге) — чтобы видеть, обновилось ли
-const BUILD='27.06.2026 10:30';
+const BUILD='27.06.2026 10:35';
 try{ document.getElementById('ver').textContent = (BUILD.indexOf('__')===0)?'' : ('верс. '+BUILD); }catch(e){}
 
 const map = L.map('map',{minZoom:9,maxZoom:16,zoomControl:false}).setView([56.95,24.11],11);
@@ -1163,8 +1163,9 @@ function pickConnected(f, agg){
     const polys = g.type==='Polygon' ? [g.coordinates] : (g.type==='MultiPolygon'? g.coordinates : []);
     if(!polys.length) return null;
     const bb=turf.bbox(f), pad=0.7;
+    let diag=1; try{ diag=turf.distance([bb[0],bb[1]],[bb[2],bb[3]],{units:'kilometers'})||1; }catch(e){}
     let aggBuf=null;
-    try{ const c=turf.bboxClip(agg,[bb[0]-pad,bb[1]-pad,bb[2]+pad,bb[3]+pad]); if(isPoly(c.geometry)) aggBuf=turf.buffer(c,0.3,{units:'kilometers'}); }catch(e){}
+    try{ const c=turf.bboxClip(agg,[bb[0]-pad,bb[1]-pad,bb[2]+pad,bb[3]+pad]); if(isPoly(c.geometry)) aggBuf=turf.buffer(c,Math.max(diag*0.05,0.02),{units:'kilometers'}); }catch(e){}
     let bestTouch=null, bestTouchA=-1, bestAny=null, bestAnyA=-1;
     for(const coords of polys){
       const piece={type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:coords}};
@@ -1196,9 +1197,8 @@ function pickTarget(line, closed){
   let probe=null;
   try{
     if(closed){ const ring=line.slice(); ring.push(ring[0]); probe=cleanFill(turf.polygon([ring])); }
-    else { probe=turf.buffer(turf.lineString(line),0.5,{units:'kilometers'}); }
   }catch(e){}
-  if(!probe){ try{ probe=turf.buffer(turf.lineString(line),0.5,{units:'kilometers'}); }catch(e){} }
+  if(!probe){ try{ const llen=turf.length(turf.lineString(line),{units:'kilometers'})||1; probe=turf.buffer(turf.lineString(line),Math.max(llen*0.08,0.02),{units:'kilometers'}); }catch(e){} }
   if(!probe) return null;
   let best=0, target=null;
   for(const name of Object.keys(state)){
@@ -1235,7 +1235,9 @@ function keepSubstantial(f){
   try{
     const g=f.geometry;
     if(g.type!=='MultiPolygon') return f;
-    const keep=g.coordinates.filter(c=>{ let a=0; try{ a=turf.area({type:'Feature',geometry:{type:'Polygon',coordinates:c}})/1e6; }catch(e){} return a>=0.01; });
+    const areas=g.coordinates.map(c=>{ let a=0; try{ a=turf.area({type:'Feature',geometry:{type:'Polygon',coordinates:c}}); }catch(e){} return a; });
+    const maxA=Math.max.apply(null,areas)||0;
+    const keep=g.coordinates.filter((c,i)=> areas[i] >= maxA*0.01);   // >=1% самого крупного куска -> убираем только числовые осколки
     if(!keep.length) return f;
     return {type:'Feature',properties:{},geometry: keep.length===1?{type:'Polygon',coordinates:keep[0]}:{type:'MultiPolygon',coordinates:keep}};
   }catch(e){ return f; }
@@ -1287,7 +1289,8 @@ function startCapture(target, region){
 
   let newTgt=null, absorbed=region;
   if(dRaw && isPoly(dRaw.geometry)){
-    const sp=splitBySize(dRaw.geometry, 0.03);         // <0.03 км² у жертвы = осколок → агрессору (городской масштаб)
+    let vKm2=0; try{ vKm2=turf.area(feat(target))/1e6; }catch(e){}
+    const sp=splitBySize(dRaw.geometry, vKm2*0.02);   // <2% площади жертвы = осколок -> агрессору (относительно)
     newTgt=sp.big;
     if(sp.tiny){ try{ const u=turf.union(region, {type:'Feature',properties:{},geometry:sp.tiny}); if(u&&isPoly(u.geometry)) absorbed=u; }catch(e){} }
   } // dRaw===null -> жертва поглощена целиком (newTgt=null)
@@ -1337,7 +1340,7 @@ function animateFill(region, color, baseColor, atkBefore){
     if(isPoly(c.geometry)) localAtk=c; else adjacent=false;
   }catch(e){ adjacent=false; }
   const pb=turf.bbox(region);
-  const maxD=Math.max(turf.distance([pb[0],pb[1]],[pb[2],pb[3]],{units:'kilometers'}),0.5);
+  const maxD=Math.max(turf.distance([pb[0],pb[1]],[pb[2],pb[3]],{units:'kilometers'}),0.001);
   const t0=performance.now(), dur=playing?2500:(adjacent?4500:650); let lastStep=-1, fin=false;
   function finish(){ if(fin) return; fin=true; try{map.removeLayer(overlay);}catch(e){} }
   (function step(t){
@@ -1350,7 +1353,7 @@ function animateFill(region, color, baseColor, atkBefore){
     const s=Math.floor(k*60);
     if(s!==lastStep){ lastStep=s;
       try{
-        const g=turf.buffer(localAtk, maxD*ek+0.05, {units:'kilometers'});
+        const g=turf.buffer(localAtk, maxD*(ek+0.05), {units:'kilometers'});
         const remaining = g ? turf.difference(region, g) : region;   // ещё не захваченная часть (цвет жертвы)
         overlay.clearLayers();
         if(remaining && isPoly(remaining.geometry)) overlay.addData(remaining);
