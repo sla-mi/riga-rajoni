@@ -832,7 +832,7 @@ window.EUROPE_GEOJSON={"type":"FeatureCollection","features":[{"type":"Feature",
 if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
 
 // отметка версии (дата/время сборки по Риге) — чтобы видеть, обновилось ли
-const BUILD='27.06.2026 11:08';
+const BUILD='14.07.2026 10:27';
 try{ document.getElementById('ver').textContent = (BUILD.indexOf('__')===0)?'' : ('верс. '+BUILD); }catch(e){}
 
 const map = L.map('map',{minZoom:9,maxZoom:16,zoomControl:false}).setView([56.95,24.11],11);
@@ -1275,12 +1275,26 @@ function flashStroke(line){
 }
 
 // разбить геометрию на крупные куски и мелкие осколки по площади (км²)
-function splitBySize(geom, minKm2){
+// «осколок» = маленький кусок, ПРИМЫКАЮЩИЙ к месту разреза (числовой мусор difference), а НЕ любой
+// удалённый мелкий остров/эксклав жертвы. Иначе далёкие острова улетали бы агрессору при любом ходе.
+function splitBySize(geom, region){
   const polys = geom.type==='Polygon' ? [geom.coordinates] : (geom.type==='MultiPolygon' ? geom.coordinates : []);
-  const big=[], tiny=[], min=minKm2*1e6;
+  const big=[], tiny=[];
+  let regionBuf=null, regionArea=0;
+  try{
+    regionArea = turf.area(region);
+    const bb=turf.bbox(region);
+    const diag = Math.max(turf.distance([bb[0],bb[1]],[bb[2],bb[3]],{units:'kilometers'}), 0.01);
+    regionBuf = turf.buffer(region, diag*0.05, {units:'kilometers'});
+  }catch(e){}
   for(const c of polys){
-    let a=0; try{ a=turf.area({type:'Polygon',coordinates:c}); }catch(e){}
-    (a>=min?big:tiny).push(c);
+    const piece={type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:c}};
+    let a=0; try{ a=turf.area(piece); }catch(e){}
+    let touches=false;
+    try{ touches = regionBuf ? turf.booleanIntersects(piece,regionBuf) : false; }catch(e){}
+    // осколок только если он у самого разреза И мал относительно захваченной площади (числовой мусор)
+    const isSliver = touches && regionArea>0 && a < regionArea*0.15;
+    (isSliver?tiny:big).push(c);
   }
   const pack=arr=> !arr.length ? null : (arr.length===1?{type:'Polygon',coordinates:arr[0]}:{type:'MultiPolygon',coordinates:arr});
   return {big:pack(big), tiny:pack(tiny)};
@@ -1295,8 +1309,7 @@ function startCapture(target, region){
 
   let newTgt=null, absorbed=region;
   if(dRaw && isPoly(dRaw.geometry)){
-    let vKm2=0; try{ vKm2=turf.area(feat(target))/1e6; }catch(e){}
-    const sp=splitBySize(dRaw.geometry, vKm2*0.02);   // <2% площади жертвы = осколок -> агрессору (относительно)
+    const sp=splitBySize(dRaw.geometry, region);   // осколки — только у самого разреза, далёкие острова не трогаем
     newTgt=sp.big;
     if(sp.tiny){ try{ const u=turf.union(region, {type:'Feature',properties:{},geometry:sp.tiny}); if(u&&isPoly(u.geometry)) absorbed=u; }catch(e){} }
   } // dRaw===null -> жертва поглощена целиком (newTgt=null)
