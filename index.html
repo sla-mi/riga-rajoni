@@ -832,12 +832,14 @@ window.EUROPE_GEOJSON={"type":"FeatureCollection","features":[{"type":"Feature",
 if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
 
 // отметка версии (дата/время сборки по Риге) — чтобы видеть, обновилось ли
-const BUILD='14.07.2026 10:31';
+const BUILD='03.09.2026 18:08';
 try{ document.getElementById('ver').textContent = (BUILD.indexOf('__')===0)?'' : ('верс. '+BUILD); }catch(e){}
 
 const map = L.map('map',{minZoom:9,maxZoom:16,zoomControl:false}).setView([56.95,24.11],11);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-  attribution:'© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:19
+// подложка: Esri Light Gray Canvas (бесплатно, без ключа). CARTO с 2026 требует API-ключ и
+// печатает «API KEY REQUIRED» прямо в плитку — поэтому ушли с неё.
+L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',{
+  attribution:'Tiles © Esri', maxZoom:16
 }).addTo(map);
 
 // ---- стабильный цвет для каждой страны (золотое сечение по тону) ----
